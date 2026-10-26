@@ -15,7 +15,7 @@ setup(
     zip_safe=True,
     maintainer='arda',
     maintainer_email='elibol24@itu.edu.tr',
-    description='mode_manager and robot_console nodes',
+    description='mode_manager, control_panel (PyQt5 teleop) and robot_console nodes',
     license='Apache-2.0',
     extras_require={
         'test': [

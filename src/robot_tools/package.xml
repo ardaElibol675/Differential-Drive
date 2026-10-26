@@ -3,7 +3,7 @@
 <package format="3">
   <name>robot_tools</name>
   <version>0.0.0</version>
-  <description>mode_manager and robot_console nodes</description>
+  <description>mode_manager, control_panel (PyQt5 teleop) and robot_console nodes</description>
   <maintainer email="elibol24@itu.edu.tr">arda</maintainer>
   <license>Apache-2.0</license>
 

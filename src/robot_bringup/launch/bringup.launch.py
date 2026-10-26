@@ -24,13 +24,17 @@ def generate_launch_description():
     )
     slam_arg = DeclareLaunchArgument('slam', default_value='false')
     use_rviz_arg = DeclareLaunchArgument('use_rviz', default_value='true')
+    gui_arg = DeclareLaunchArgument('gui', default_value='true')
     use_teleop_arg = DeclareLaunchArgument('use_teleop', default_value='true')
 
     sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(robot_gazebo_share, 'launch', 'sim.launch.py')
         ),
-        launch_arguments={'world': LaunchConfiguration('world')}.items(),
+        launch_arguments={
+            'world': LaunchConfiguration('world'),
+            'gui': LaunchConfiguration('gui'),
+        }.items(),
     )
 
     rviz_node = Node(
@@ -62,6 +66,7 @@ def generate_launch_description():
         map_arg,
         slam_arg,
         use_rviz_arg,
+        gui_arg,
         use_teleop_arg,
         sim,
         rviz_node,
