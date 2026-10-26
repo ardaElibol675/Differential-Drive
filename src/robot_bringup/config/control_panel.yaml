@@ -1,0 +1,10 @@
+/**:
+  ros__parameters:
+    use_sim_time: true
+    # Must match robot_description/urdf/robot.urdf.xacro
+    wheel_radius: 0.05
+    wheel_separation: 0.32
+    default_rpm: 80
+    max_rpm: 150
+    # Wheel rim acceleration/deceleration limit [m/s^2]
+    ramp_rate: 0.5

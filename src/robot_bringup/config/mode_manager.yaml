@@ -1,0 +1,5 @@
+/**:
+  ros__parameters:
+    initial_mode: "MANUAL"
+    cmd_timeout: 0.5
+    cancel_nav_on_manual: true
