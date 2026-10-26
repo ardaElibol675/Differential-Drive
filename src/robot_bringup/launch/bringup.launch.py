@@ -37,6 +37,13 @@ def generate_launch_description():
         }.items(),
     )
 
+    slam = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(robot_navigation_share, 'launch', 'slam.launch.py')
+        ),
+        condition=IfCondition(LaunchConfiguration('slam')),
+    )
+
     rviz_node = Node(
         package='rviz2',
         executable='rviz2',
@@ -69,6 +76,7 @@ def generate_launch_description():
         gui_arg,
         use_teleop_arg,
         sim,
+        slam,
         rviz_node,
         mode_manager_node,
         control_panel_node,
