@@ -2,8 +2,8 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.conditions import IfCondition
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -26,6 +26,9 @@ def generate_launch_description():
     use_rviz_arg = DeclareLaunchArgument('use_rviz', default_value='true')
     gui_arg = DeclareLaunchArgument('gui', default_value='true')
     use_teleop_arg = DeclareLaunchArgument('use_teleop', default_value='true')
+    x_pose_arg = DeclareLaunchArgument('x_pose', default_value='0.0')
+    y_pose_arg = DeclareLaunchArgument('y_pose', default_value='0.0')
+    yaw_arg = DeclareLaunchArgument('yaw', default_value='0.0')
 
     sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -34,6 +37,9 @@ def generate_launch_description():
         launch_arguments={
             'world': LaunchConfiguration('world'),
             'gui': LaunchConfiguration('gui'),
+            'x_pose': LaunchConfiguration('x_pose'),
+            'y_pose': LaunchConfiguration('y_pose'),
+            'yaw': LaunchConfiguration('yaw'),
         }.items(),
     )
 
@@ -42,6 +48,28 @@ def generate_launch_description():
             os.path.join(robot_navigation_share, 'launch', 'slam.launch.py')
         ),
         condition=IfCondition(LaunchConfiguration('slam')),
+    )
+
+    # Delayed so that the sim clock and odom TF exist before AMCL/Nav2 start
+    navigation = TimerAction(
+        period=5.0,
+        actions=[
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(robot_navigation_share, 'launch', 'navigation.launch.py')
+                ),
+                # params_file is passed explicitly: gazebo.launch.py leaks params_file:=''
+                launch_arguments={
+                    'map': LaunchConfiguration('map'),
+                    'params_file': os.path.join(
+                        robot_navigation_share, 'config', 'nav2_params.yaml'),
+                    'x_pose': LaunchConfiguration('x_pose'),
+                    'y_pose': LaunchConfiguration('y_pose'),
+                    'yaw': LaunchConfiguration('yaw'),
+                }.items(),
+            ),
+        ],
+        condition=UnlessCondition(LaunchConfiguration('slam')),
     )
 
     rviz_node = Node(
@@ -75,8 +103,12 @@ def generate_launch_description():
         use_rviz_arg,
         gui_arg,
         use_teleop_arg,
+        x_pose_arg,
+        y_pose_arg,
+        yaw_arg,
         sim,
         slam,
+        navigation,
         rviz_node,
         mode_manager_node,
         control_panel_node,

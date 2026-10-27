@@ -13,6 +13,7 @@
   <exec_depend>robot_navigation</exec_depend>
   <exec_depend>robot_tools</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <exec_depend>nav2_rviz_plugins</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
