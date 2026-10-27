@@ -5,9 +5,12 @@ import sys
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
+from rclpy.time import Time
+from tf2_ros import Buffer, TransformException, TransformListener
 
 from geometry_msgs.msg import Twist
 from std_msgs.msg import String
+from std_srvs.srv import Trigger
 
 from PyQt5.QtCore import QEvent, Qt, QTimer
 from PyQt5.QtWidgets import (
@@ -30,6 +33,9 @@ KEY_TO_DIRECTION = {
     Qt.Key_Down: 'backward', Qt.Key_S: 'backward',
     Qt.Key_Left: 'left', Qt.Key_A: 'left',
 }
+
+TOGGLE_MODE_KEY = Qt.Key_X
+PRINT_POSE_KEY = Qt.Key_Z
 
 CONTROL_RATE = 20.0
 
@@ -64,6 +70,9 @@ class ControlPanelNode(Node):
         self.declare_parameter('default_rpm', 80)
         self.declare_parameter('max_rpm', 150)
         self.declare_parameter('ramp_rate', 0.5)
+        self.declare_parameter('target_frame', 'map')
+        self.declare_parameter('fallback_frame', 'odom')
+        self.declare_parameter('robot_frame', 'base_footprint')
 
         self.wheel_radius = self.get_parameter('wheel_radius').get_parameter_value().double_value
         self.wheel_separation = self.get_parameter(
@@ -72,9 +81,20 @@ class ControlPanelNode(Node):
         self.max_rpm = self.get_parameter('max_rpm').get_parameter_value().integer_value
         # Wheel rim acceleration limit [m/s^2]
         self.ramp_rate = self.get_parameter('ramp_rate').get_parameter_value().double_value
+        self.pose_frames = [
+            self.get_parameter('target_frame').get_parameter_value().string_value,
+            self.get_parameter('fallback_frame').get_parameter_value().string_value,
+        ]
+        self.robot_frame = self.get_parameter('robot_frame').get_parameter_value().string_value
 
         self.mode = '?'
+        self.last_pose_text = '-'
         self.cmd_pub = self.create_publisher(Twist, 'cmd_vel_teleop', 10)
+        self.toggle_client = self.create_client(Trigger, '/mode_manager/toggle_mode')
+
+        # Own listener node on its own thread: /tf is too busy for the panel's spin_once
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, None, spin_thread=True)
 
         mode_qos = QoSProfile(
             depth=1,
@@ -86,6 +106,37 @@ class ControlPanelNode(Node):
 
     def mode_cb(self, msg):
         self.mode = msg.data
+
+    def toggle_mode(self):
+        if not self.toggle_client.service_is_ready():
+            print('[MOD] /mode_manager/toggle_mode servisi yok (mode_manager çalışıyor mu?)',
+                  flush=True)
+            return
+        future = self.toggle_client.call_async(Trigger.Request())
+        future.add_done_callback(self.toggle_done_cb)
+
+    def toggle_done_cb(self, future):
+        result = future.result()
+        if result is None or not result.success:
+            print('[MOD] mod değiştirilemedi', flush=True)
+        else:
+            print(f'[MOD] {result.message}', flush=True)
+
+    def print_pose(self):
+        for frame in self.pose_frames:
+            try:
+                tf = self.tf_buffer.lookup_transform(frame, self.robot_frame, Time())
+            except TransformException:
+                continue
+            t = tf.transform.translation
+            q = tf.transform.rotation
+            yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+            self.last_pose_text = (
+                f'[{frame}] x={t.x:.2f} m, y={t.y:.2f} m, yaw={math.degrees(yaw):.1f}°')
+            print(f'{self.last_pose_text} | mod={self.mode}', flush=True)
+            return
+        print(f'[KONUM] {" / ".join(self.pose_frames)} → {self.robot_frame} TF\'i yok',
+              flush=True)
 
     def rpm_to_speed(self, rpm):
         return rpm * 2.0 * math.pi / 60.0 * self.wheel_radius
@@ -140,6 +191,14 @@ class ControlPanelWindow(QWidget):
         keys_grid.addWidget(hint, 2, 0, 1, 3)
         self.refresh_key_labels()
 
+        command_box = QGroupBox('Komutlar')
+        command_row = QHBoxLayout(command_box)
+        for text in ('X: MANUAL ↔ AUTO', 'Z: konumu terminale yazdır'):
+            label = QLabel(text)
+            label.setAlignment(Qt.AlignCenter)
+            label.setStyleSheet('border: 1px solid gray; border-radius: 4px; padding: 4px;')
+            command_row.addWidget(label)
+
         speed_box = QGroupBox('Maksimum teker hızı (RPM)')
         speed_row = QHBoxLayout(speed_box)
         self.rpm_slider = QSlider(Qt.Horizontal)
@@ -164,11 +223,13 @@ class ControlPanelWindow(QWidget):
         self.mode_label = QLabel()
         self.wheel_label = QLabel()
         self.twist_label = QLabel()
-        for label in (self.mode_label, self.wheel_label, self.twist_label):
+        self.pose_label = QLabel()
+        for label in (self.mode_label, self.wheel_label, self.twist_label, self.pose_label):
             status_layout.addWidget(label)
 
         layout = QVBoxLayout(self)
         layout.addWidget(keys_box)
+        layout.addWidget(command_box)
         layout.addWidget(speed_box)
         layout.addWidget(status_box)
 
@@ -185,6 +246,14 @@ class ControlPanelWindow(QWidget):
 
     def eventFilter(self, obj, event):
         if event.type() in (QEvent.KeyPress, QEvent.KeyRelease):
+            if event.key() in (TOGGLE_MODE_KEY, PRINT_POSE_KEY):
+                # One action per real press; ignore releases and auto-repeat
+                if event.type() == QEvent.KeyPress and not event.isAutoRepeat():
+                    if event.key() == TOGGLE_MODE_KEY:
+                        self.node.toggle_mode()
+                    else:
+                        self.node.print_pose()
+                return True
             direction = KEY_TO_DIRECTION.get(event.key())
             if direction is None:
                 return False
@@ -218,6 +287,7 @@ class ControlPanelWindow(QWidget):
             f'sağ {self.node.speed_to_rpm(self.wheels[1]):+6.1f} RPM')
         self.twist_label.setText(
             f'cmd_vel_teleop: v = {msg.linear.x:+.2f} m/s, ω = {msg.angular.z:+.2f} rad/s')
+        self.pose_label.setText(f'Son konum (Z): {self.node.last_pose_text}')
 
         rclpy.spin_once(self.node, timeout_sec=0.0)
 
@@ -237,6 +307,9 @@ def main(args=None):
         app.exec_()
     finally:
         node.publish_wheels(0.0, 0.0)
+        # Stop the TF listener thread before rclpy.shutdown invalidates its context
+        node.tf_listener.executor.shutdown()
+        node.tf_listener.dedicated_listener_thread.join()
         node.destroy_node()
         rclpy.shutdown()
 

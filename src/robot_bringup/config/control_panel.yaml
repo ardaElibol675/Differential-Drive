@@ -8,3 +8,7 @@
     max_rpm: 150
     # Wheel rim acceleration/deceleration limit [m/s^2]
     ramp_rate: 0.5
+    # Z key: pose of robot_frame in target_frame (fallback_frame if map is unavailable)
+    target_frame: "map"
+    fallback_frame: "odom"
+    robot_frame: "base_footprint"
