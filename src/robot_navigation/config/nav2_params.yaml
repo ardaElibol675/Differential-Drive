@@ -38,7 +38,6 @@ amcl:
     z_rand: 0.5
     z_short: 0.05
     scan_topic: scan
-    # Spawn pose; navigation.launch.py rewrites x/y/yaw from the x_pose/y_pose/yaw args
     set_initial_pose: true
     initial_pose:
       x: 0.0
@@ -55,10 +54,6 @@ bt_navigator:
     bt_loop_duration: 10
     default_server_timeout: 20
     wait_for_service_timeout: 1000
-    # 'default_nav_through_poses_bt_xml' and 'default_nav_to_pose_bt_xml' are use defaults:
-    # nav2_bt_navigator/navigate_to_pose_w_replanning_and_recovery.xml
-    # nav2_bt_navigator/navigate_through_poses_w_replanning_and_recovery.xml
-    # They can be set here or via a RewrittenYaml remap from a parent launch file to Nav2.
     plugin_lib_names:
       - nav2_compute_path_to_pose_action_bt_node
       - nav2_compute_path_through_poses_action_bt_node
@@ -134,16 +129,13 @@ controller_server:
       required_movement_radius: 0.5
       movement_time_allowance: 10.0
     # Goal checker parameters
-    #precise_goal_checker:
-    #  plugin: "nav2_controller::SimpleGoalChecker"
-    #  xy_goal_tolerance: 0.25
-    #  yaw_goal_tolerance: 0.25
-    #  stateful: True
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.25
+      # Tightened from 0.25: approach speed is 0.05 m/s (2.5 mm per control cycle) and the
+      # in-place rotation 1.0 rad/s (0.05 rad per cycle), so the robot settles well within these
+      xy_goal_tolerance: 0.10
+      yaw_goal_tolerance: 0.15
     # Pure Pursuit; regulation off to stay close to classic Pure Pursuit
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
@@ -251,8 +243,6 @@ global_costmap:
 map_server:
   ros__parameters:
     use_sim_time: True
-    # Overridden in launch by the "map" launch configuration or provided default value.
-    # To use in yaml, remove the default "map" value in the tb3_simulation_launch.py file & provide full path to map below.
     yaml_filename: ""
 
 map_saver:

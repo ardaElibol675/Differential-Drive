@@ -38,6 +38,7 @@ TOGGLE_MODE_KEY = Qt.Key_X
 PRINT_POSE_KEY = Qt.Key_Z
 
 CONTROL_RATE = 20.0
+SPIN_PER_STEP = 5
 
 
 def directions_to_wheels(directions):
@@ -87,7 +88,7 @@ class ControlPanelNode(Node):
         ]
         self.robot_frame = self.get_parameter('robot_frame').get_parameter_value().string_value
 
-        self.mode = '?'
+        self.mode = '-'
         self.last_pose_text = '-'
         self.cmd_pub = self.create_publisher(Twist, 'cmd_vel_teleop', 10)
         self.toggle_client = self.create_client(Trigger, '/mode_manager/toggle_mode')
@@ -103,14 +104,26 @@ class ControlPanelNode(Node):
             history=QoSHistoryPolicy.KEEP_LAST,
         )
         self.create_subscription(String, 'robot_mode', self.mode_cb, mode_qos)
+        self.nav_status = '-'
+        self.create_subscription(String, 'nav_status', self.nav_status_cb, 10)
+        # Command actually sent to the robot; shown in AUTO, where the panel's own command is muted
+        self.cmd_vel = Twist()
+        self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_cb, 1)
 
     def mode_cb(self, msg):
         self.mode = msg.data
 
+    def cmd_vel_cb(self, msg):
+        self.cmd_vel = msg
+
+    def nav_status_cb(self, msg):
+        self.nav_status = msg.data
+        print(f'[NAV] {msg.data}', flush=True)
+
     def toggle_mode(self):
         if not self.toggle_client.service_is_ready():
-            print('[MOD] /mode_manager/toggle_mode servisi yok (mode_manager çalışıyor mu?)',
-                  flush=True)
+            print('[MODE] /mode_manager/toggle_mode service not available '
+                  '(is mode_manager running?)', flush=True)
             return
         future = self.toggle_client.call_async(Trigger.Request())
         future.add_done_callback(self.toggle_done_cb)
@@ -118,9 +131,9 @@ class ControlPanelNode(Node):
     def toggle_done_cb(self, future):
         result = future.result()
         if result is None or not result.success:
-            print('[MOD] mod değiştirilemedi', flush=True)
+            print('[MODE] mode change failed', flush=True)
         else:
-            print(f'[MOD] {result.message}', flush=True)
+            print(f'[MODE] {result.message}', flush=True)
 
     def print_pose(self):
         for frame in self.pose_frames:
@@ -132,11 +145,14 @@ class ControlPanelNode(Node):
             q = tf.transform.rotation
             yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
             self.last_pose_text = (
-                f'[{frame}] x={t.x:.2f} m, y={t.y:.2f} m, yaw={math.degrees(yaw):.1f}°')
-            print(f'{self.last_pose_text} | mod={self.mode}', flush=True)
+                f'x={t.x:.2f} m, y={t.y:.2f} m, yaw={math.degrees(yaw):.1f}°')
+            if frame != self.pose_frames[0]:
+                self.last_pose_text += f' ({frame})'
+            print(f'[POSE] {self.last_pose_text}', flush=True)
             return
-        print(f'[KONUM] {" / ".join(self.pose_frames)} → {self.robot_frame} TF\'i yok',
-              flush=True)
+        self.last_pose_text = (
+            f'No TF found ({" / ".join(self.pose_frames)} → {self.robot_frame})')
+        print(f'[POSE] {self.last_pose_text}', flush=True)
 
     def rpm_to_speed(self, rpm):
         return rpm * 2.0 * math.pi / 60.0 * self.wheel_radius
@@ -151,6 +167,10 @@ class ControlPanelNode(Node):
         self.cmd_pub.publish(msg)
         return msg
 
+    def twist_to_wheels(self, twist):
+        half_turn = twist.angular.z * self.wheel_separation / 2.0
+        return twist.linear.x - half_turn, twist.linear.x + half_turn
+
 
 class ControlPanelWindow(QWidget):
 
@@ -158,12 +178,13 @@ class ControlPanelWindow(QWidget):
         super().__init__()
         self.node = node
         self.held = set()
+        self.held_commands = set()
         self.wheels = (0.0, 0.0)
 
         self.setWindowTitle('Robot Control Panel')
         self.build_ui()
+        self.resize(380,550)
 
-        # Drive keys are caught application-wide so the spin box / slider never swallow them
         QApplication.instance().installEventFilter(self)
 
         self.timer = QTimer(self)
@@ -171,35 +192,35 @@ class ControlPanelWindow(QWidget):
         self.timer.start(int(1000 / CONTROL_RATE))
 
     def build_ui(self):
-        keys_box = QGroupBox('Sürüş (pencere odaktayken basılı tut)')
+        keys_box = QGroupBox('Drive')
         keys_grid = QGridLayout(keys_box)
         self.key_labels = {}
         for direction, text, row, col in (
-            ('forward', '↑ / W\nİleri', 0, 1),
-            ('left', '← / A\nSol', 1, 0),
-            ('backward', '↓ / S\nGeri', 1, 1),
-            ('right', '→ / D\nSağ', 1, 2),
+            ('forward', '↑ / W\nForward', 0, 1),
+            ('left', '← / A\nACW', 1, 0),
+            ('backward', '↓ / S\nBackward', 1, 1),
+            ('right', '→ / D\nCW', 1, 2),
         ):
             label = QLabel(text)
             label.setAlignment(Qt.AlignCenter)
             label.setMinimumSize(80, 50)
             self.key_labels[direction] = label
             keys_grid.addWidget(label, row, col)
-        hint = QLabel('Tuşlar birleştirilebilir (örn. ↑+→ sağa viraj).\n'
-                      'Tuş bırakılınca robot yumuşakça durur.')
-        hint.setAlignment(Qt.AlignCenter)
-        keys_grid.addWidget(hint, 2, 0, 1, 3)
+
         self.refresh_key_labels()
 
-        command_box = QGroupBox('Komutlar')
+        command_box = QGroupBox('Commands')
         command_row = QHBoxLayout(command_box)
-        for text in ('X: MANUAL ↔ AUTO', 'Z: konumu terminale yazdır'):
+        self.command_labels = {}
+        for key, text in ((TOGGLE_MODE_KEY, 'X: Toggle Mode'), (PRINT_POSE_KEY, 'Z: Print Pose')):
             label = QLabel(text)
             label.setAlignment(Qt.AlignCenter)
-            label.setStyleSheet('border: 1px solid gray; border-radius: 4px; padding: 4px;')
+            self.command_labels[key] = label
             command_row.addWidget(label)
 
-        speed_box = QGroupBox('Maksimum teker hızı (RPM)')
+        self.refresh_command_labels()
+
+        speed_box = QGroupBox('Maximum RPM')
         speed_row = QHBoxLayout(speed_box)
         self.rpm_slider = QSlider(Qt.Horizontal)
         self.rpm_slider.setRange(0, self.node.max_rpm)
@@ -218,13 +239,15 @@ class ControlPanelWindow(QWidget):
         speed_row.addWidget(self.rpm_spin)
         speed_row.addWidget(self.rpm_limit_label)
 
-        status_box = QGroupBox('Durum')
+        status_box = QGroupBox('State')
         status_layout = QVBoxLayout(status_box)
         self.mode_label = QLabel()
         self.wheel_label = QLabel()
         self.twist_label = QLabel()
         self.pose_label = QLabel()
-        for label in (self.mode_label, self.wheel_label, self.twist_label, self.pose_label):
+        self.nav_label = QLabel()
+        for label in (self.mode_label, self.wheel_label, self.twist_label, self.pose_label,
+                      self.nav_label):
             status_layout.addWidget(label)
 
         layout = QVBoxLayout(self)
@@ -240,6 +263,13 @@ class ControlPanelWindow(QWidget):
                 'border: 1px solid gray; border-radius: 4px;'
                 + ('background: #2e7d32; color: white; font-weight: bold;' if active else ''))
 
+    def refresh_command_labels(self):
+        for key, label in self.command_labels.items():
+            active = key in self.held_commands
+            label.setStyleSheet(
+                'border: 1px solid gray; border-radius: 4px; padding: 4px;'
+                + ('background: #2e7d32; color: white; font-weight: bold;' if active else ''))
+
     def refresh_rpm_limit_label(self):
         self.rpm_limit_label.setText(
             f'≈ {self.node.rpm_to_speed(self.rpm_spin.value()):.2f} m/s')
@@ -248,16 +278,21 @@ class ControlPanelWindow(QWidget):
         if event.type() in (QEvent.KeyPress, QEvent.KeyRelease):
             if event.key() in (TOGGLE_MODE_KEY, PRINT_POSE_KEY):
                 # One action per real press; ignore releases and auto-repeat
-                if event.type() == QEvent.KeyPress and not event.isAutoRepeat():
-                    if event.key() == TOGGLE_MODE_KEY:
-                        self.node.toggle_mode()
+                if not event.isAutoRepeat():
+                    if event.type() == QEvent.KeyPress:
+                        self.held_commands.add(event.key())
+                        if event.key() == TOGGLE_MODE_KEY:
+                            self.node.toggle_mode()
+                        else:
+                            self.node.print_pose()
                     else:
-                        self.node.print_pose()
+                        self.held_commands.discard(event.key())
+                    self.refresh_command_labels()
                 return True
             direction = KEY_TO_DIRECTION.get(event.key())
             if direction is None:
                 return False
-            # Holding a key makes X11 emit repeated press/release pairs; only real ones count
+
             if not event.isAutoRepeat():
                 if event.type() == QEvent.KeyPress:
                     self.held.add(direction)
@@ -266,9 +301,11 @@ class ControlPanelWindow(QWidget):
                 self.refresh_key_labels()
             return True
         if event.type() == QEvent.WindowDeactivate and obj is self:
-            # Releases are not delivered once focus is gone; don't keep driving
+
             self.held.clear()
+            self.held_commands.clear()
             self.refresh_key_labels()
+            self.refresh_command_labels()
         return False
 
     def control_step(self):
@@ -278,18 +315,24 @@ class ControlPanelWindow(QWidget):
         self.wheels = ramp_towards(self.wheels, target, self.node.ramp_rate / CONTROL_RATE)
 
         msg = self.node.publish_wheels(*self.wheels)
+        wheels = self.wheels
 
         mode = self.node.mode
-        note = '' if mode == 'MANUAL' else '  (panel komutları yok sayılıyor)'
-        self.mode_label.setText(f'Mod: {mode}{note}')
+        if mode == 'AUTO':
+            msg = self.node.cmd_vel
+            wheels = self.node.twist_to_wheels(msg)
+        self.mode_label.setText(f'Mode: {mode}')
         self.wheel_label.setText(
-            f'Teker: sol {self.node.speed_to_rpm(self.wheels[0]):+6.1f} RPM, '
-            f'sağ {self.node.speed_to_rpm(self.wheels[1]):+6.1f} RPM')
+            f'Wheel: Left {self.node.speed_to_rpm(wheels[0]):+6.1f} RPM, '
+            f' Right {self.node.speed_to_rpm(wheels[1]):+6.1f} RPM')
         self.twist_label.setText(
-            f'cmd_vel_teleop: v = {msg.linear.x:+.2f} m/s, ω = {msg.angular.z:+.2f} rad/s')
-        self.pose_label.setText(f'Son konum (Z): {self.node.last_pose_text}')
+            f'Speed: v = {msg.linear.x:+.2f} m/s, ω = {msg.angular.z:+.2f} rad/s')
+        self.pose_label.setText(f'Last Pose: {self.node.last_pose_text}')
+        self.nav_label.setText(f'Navigation: {self.node.nav_status}')
 
-        rclpy.spin_once(self.node, timeout_sec=0.0)
+        # spin_once runs a single callback; /cmd_vel alone arrives at the loop rate
+        for _ in range(SPIN_PER_STEP):
+            rclpy.spin_once(self.node, timeout_sec=0.0)
 
 
 def main(args=None):
@@ -299,7 +342,7 @@ def main(args=None):
     window = ControlPanelWindow(node)
     window.show()
 
-    # Qt's event loop blocks Python signal handling; quit cleanly on Ctrl+C / launch shutdown
+
     signal.signal(signal.SIGINT, lambda *_: app.quit())
     signal.signal(signal.SIGTERM, lambda *_: app.quit())
 
@@ -307,7 +350,7 @@ def main(args=None):
         app.exec_()
     finally:
         node.publish_wheels(0.0, 0.0)
-        # Stop the TF listener thread before rclpy.shutdown invalidates its context
+
         node.tf_listener.executor.shutdown()
         node.tf_listener.dedicated_listener_thread.join()
         node.destroy_node()

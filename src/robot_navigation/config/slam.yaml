@@ -1,5 +1,3 @@
-# Based on slam_toolbox (Humble) config/mapper_params_online_async.yaml
-# Changed: use_sim_time, min_laser_range, max_laser_range
 slam_toolbox:
   ros__parameters:
     use_sim_time: true
@@ -20,24 +18,17 @@ slam_toolbox:
     use_map_saver: true
     mode: mapping #localization
 
-    # if you'd like to immediately start continuing a map at a given pose
-    # or at the dock, but they are mutually exclusive, if pose is given
-    # will use pose
-    #map_file_name: test_steve
-    # map_start_pose: [0.0, 0.0, 0.0]
-    #map_start_at_dock: true
-
     debug_logging: false
     throttle_scans: 1
-    transform_publish_period: 0.02 #if 0 never publishes odometry
+    transform_publish_period: 0.02
     map_update_interval: 5.0
     resolution: 0.05
-    min_laser_range: 0.12 # LiDAR range min (gazebo.xacro)
-    max_laser_range: 12.0 # LiDAR range max (gazebo.xacro)
+    min_laser_range: 0.12 
+    max_laser_range: 12.0 
     minimum_time_interval: 0.5
     transform_timeout: 0.2
     tf_buffer_duration: 30.
-    stack_size_to_use: 40000000 #// program needs a larger stack size to serialize large maps
+    stack_size_to_use: 40000000
     enable_interactive_mode: true
 
     # General Parameters

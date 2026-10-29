@@ -53,8 +53,6 @@ def generate_launch_description():
         }.items(),
     )
 
-    # Same node set as Humble's navigation_launch.py, but every Nav2 velocity output
-    # goes through /cmd_vel_raw -> velocity_smoother -> /cmd_vel_nav -> mode_manager.
     tf_remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static')]
     lifecycle_nodes = [
         'controller_server',

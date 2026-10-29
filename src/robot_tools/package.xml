@@ -12,7 +12,9 @@
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
   <depend>action_msgs</depend>
+  <depend>nav_msgs</depend>
   <depend>tf2_ros</depend>
+  <exec_depend>tf2_ros_py</exec_depend>
   <exec_depend>python3-pyqt5</exec_depend>
 
   <test_depend>ament_copyright</test_depend>

@@ -9,6 +9,7 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <exec_depend>launch_ros</exec_depend>
   <exec_depend>robot_gazebo</exec_depend>
   <exec_depend>robot_navigation</exec_depend>
   <exec_depend>robot_tools</exec_depend>

@@ -38,7 +38,6 @@
       <ray>
         <scan>
           <horizontal>
-            <!-- libgazebo_ros_ray_sensor.so bu ortamda LaserScan.ranges'i 129 elemanla sınırlıyor (samples>128 olduğunda) -->
             <samples>128</samples>
             <resolution>1</resolution>
             <min_angle>-3.14159265</min_angle>
