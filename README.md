@@ -8,9 +8,9 @@ A differential-drive robot with a 2D LiDAR and an RGB camera, driving on a road 
 - **Pose printing:** one key in the panel prints the robot's current pose to the terminal.
 - The whole system starts with a single launch file.
 
-![](/home/arda/rake_ws/gazebo.png)
+![Gazebo simulation](gazebo.png)
 
-![](/home/arda/rake_ws/rviz.png)
+![RViz navigation view](rviz.png)
 
 ## Requirements
 
